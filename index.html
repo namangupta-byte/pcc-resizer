@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCC Document Resizer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f0f2f5;
+    color: #1a1a2e;
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+  h1 { text-align: center; font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .subtitle { text-align: center; font-size: 13px; color: #666; margin-bottom: 32px; }
+  .cards {
+    display: flex; gap: 20px; max-width: 980px;
+    margin: 0 auto; flex-wrap: wrap; justify-content: center;
+  }
+  .card {
+    background: #fff; border-radius: 16px; padding: 24px 20px;
+    width: 300px; box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .card-header { display: flex; align-items: center; gap: 12px; }
+  .card-icon {
+    width: 42px; height: 42px; border-radius: 11px;
+    display: flex; align-items: center; justify-content: center; font-size: 20px;
+  }
+  .photo .card-icon { background: #e8f4fd; }
+  .signature .card-icon { background: #fef3e2; }
+  .document .card-icon { background: #edf7ed; }
+  .card-title { font-size: 15px; font-weight: 700; }
+  .card-spec { font-size: 11px; color: #999; margin-top: 2px; }
+  .drop-zone {
+    border: 2px dashed #d0d5dd; border-radius: 10px;
+    padding: 20px 12px; text-align: center; cursor: pointer;
+    transition: all 0.2s; background: #fafafa; position: relative;
+  }
+  .drop-zone:hover, .drop-zone.dragover { border-color: #4f8ef7; background: #f0f6ff; }
+  .drop-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .drop-text { font-size: 13px; color: #888; }
+  .drop-text strong { color: #4f8ef7; }
+
+  .preview-wrap { display: none; flex-direction: column; align-items: center; gap: 10px; }
+  .preview-wrap.visible { display: flex; }
+  .preview-img {
+    border-radius: 6px; border: 1px solid #e5e7eb;
+    object-fit: contain; background: #f8f8f8;
+  }
+  .photo .preview-img { width: 96px; height: 120px; }
+  .signature .preview-img { width: 160px; height: 40px; }
+  .document .preview-img { width: 140px; height: 105px; }
+
+  .info-row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; color: #555; width: 100%;
+  }
+  .info-row span:last-child { font-weight: 600; color: #1a1a2e; }
+
+  /* Quality slider */
+  .slider-wrap { width: 100%; }
+  .slider-label {
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: #555; margin-bottom: 6px;
+  }
+  .slider-label strong { color: #4f8ef7; font-size: 13px; }
+  input[type=range] {
+    width: 100%; accent-color: #4f8ef7; cursor: pointer; height: 4px;
+  }
+  .size-display {
+    text-align: center; font-size: 13px; font-weight: 700;
+    padding: 6px 0; border-radius: 8px; background: #f5f5f5;
+  }
+  .size-display.ok { background: #edf7ed; color: #2e7d32; }
+  .size-display.any { background: #f5f5f5; color: #333; }
+
+  .target-note { font-size: 11px; color: #aaa; text-align: center; }
+
+  .btn-download {
+    background: #2e7d32; color: #fff; border: none;
+    border-radius: 10px; padding: 11px 0; font-size: 14px;
+    font-weight: 600; cursor: pointer; width: 100%;
+    text-decoration: none; display: block; text-align: center;
+    transition: background 0.2s;
+  }
+  .btn-download:hover { background: #1b5e20; }
+  .btn-download.hidden { display: none; }
+
+  canvas { display: none; }
+</style>
+</head>
+<body>
+
+<h1>PCC Document Resizer</h1>
+<p class="subtitle">Maharashtra Police Clearance Certificate — drag, adjust quality, download</p>
+
+<div class="cards">
+
+  <!-- PHOTO -->
+  <div class="card photo">
+    <div class="card-header">
+      <div class="card-icon">🖼️</div>
+      <div>
+        <div class="card-title">Photo</div>
+        <div class="card-spec">Target: 160 × 200 px &nbsp;·&nbsp; 5–20 KB</div>
+      </div>
+    </div>
+    <div class="drop-zone" id="photoDrop">
+      <input type="file" accept="image/*" id="photoInput">
+      <div class="drop-text">Drop photo or <strong>click to browse</strong></div>
+    </div>
+    <div class="preview-wrap" id="photoPreview">
+      <img class="preview-img" id="photoImg" src="" alt="Preview">
+      <div class="info-row"><span>Original</span><span id="photoOrigSize">—</span></div>
+      <div class="slider-wrap">
+        <div class="slider-label"><span>Quality</span><strong id="photoQualLabel">80%</strong></div>
+        <input type="range" id="photoQual" min="1" max="100" value="80">
+      </div>
+      <div class="size-display any" id="photoSizeDisplay">— KB</div>
+      <div class="target-note">Target: 5–20 KB</div>
+    </div>
+    <a class="btn-download hidden" id="photoDownload" download="photo_pcc.jpg">⬇ Download Photo</a>
+    <canvas id="photoCanvas"></canvas>
+  </div>
+
+  <!-- SIGNATURE -->
+  <div class="card signature">
+    <div class="card-header">
+      <div class="card-icon">✍️</div>
+      <div>
+        <div class="card-title">Signature</div>
+        <div class="card-spec">Target: 256 × 64 px &nbsp;·&nbsp; 5–20 KB</div>
+      </div>
+    </div>
+    <div class="drop-zone" id="sigDrop">
+      <input type="file" accept="image/*" id="sigInput">
+      <div class="drop-text">Drop signature or <strong>click to browse</strong></div>
+    </div>
+    <div class="preview-wrap" id="sigPreview">
+      <img class="preview-img" id="sigImg" src="" alt="Preview">
+      <div class="info-row"><span>Original</span><span id="sigOrigSize">—</span></div>
+      <div class="slider-wrap">
+        <div class="slider-label"><span>Quality</span><strong id="sigQualLabel">80%</strong></div>
+        <input type="range" id="sigQual" min="1" max="100" value="80">
+      </div>
+      <div class="size-display any" id="sigSizeDisplay">— KB</div>
+      <div class="target-note">Target: 5–20 KB</div>
+    </div>
+    <a class="btn-download hidden" id="sigDownload" download="signature_pcc.jpg">⬇ Download Signature</a>
+    <canvas id="sigCanvas"></canvas>
+  </div>
+
+  <!-- DOCUMENT -->
+  <div class="card document">
+    <div class="card-header">
+      <div class="card-icon">📄</div>
+      <div>
+        <div class="card-title">Document</div>
+        <div class="card-spec">Target: 75–100 KB &nbsp;·&nbsp; JPG / PDF</div>
+      </div>
+    </div>
+    <div class="drop-zone" id="docDrop">
+      <input type="file" accept="image/*,.pdf" id="docInput">
+      <div class="drop-text">Drop document or <strong>click to browse</strong></div>
+    </div>
+    <div class="preview-wrap" id="docPreview">
+      <img class="preview-img" id="docImg" src="" alt="Preview">
+      <div id="docPdfNote" style="display:none;font-size:12px;color:#888;text-align:center">
+        📄 PDF — quality slider not available for PDF.<br>Download as-is below.
+      </div>
+      <div class="info-row"><span>Original</span><span id="docOrigSize">—</span></div>
+      <div class="slider-wrap" id="docSliderWrap">
+        <div class="slider-label"><span>Quality</span><strong id="docQualLabel">80%</strong></div>
+        <input type="range" id="docQual" min="1" max="100" value="80">
+      </div>
+      <div class="size-display any" id="docSizeDisplay">— KB</div>
+      <div class="target-note">Target: 75–100 KB</div>
+    </div>
+    <a class="btn-download hidden" id="docDownload" download="document_pcc.jpg">⬇ Download Document</a>
+    <canvas id="docCanvas"></canvas>
+  </div>
+
+</div>
+
+<script>
+function fmt(bytes) { return (bytes / 1024).toFixed(1) + ' KB'; }
+
+function dataUrlBytes(dataUrl) {
+  return Math.round((dataUrl.length - dataUrl.indexOf(',') - 1) * 3 / 4);
+}
+
+function drawToCanvas(canvas, img, w, h) {
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+}
+
+function setupDrop(dropId, inputId) {
+  const drop = document.getElementById(dropId);
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragover'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) {
+      const inp = document.getElementById(inputId);
+      // Use DataTransfer to set files
+      const dt = new DataTransfer(); dt.items.add(f);
+      inp.files = dt.files;
+      inp.dispatchEvent(new Event('change'));
+    }
+  });
+}
+
+// ── Generic image card setup ─────────────────────────────────────────────────
+function setupImageCard({ inputId, dropId, previewId, imgId, origSizeId, qualId, qualLabelId, sizeDisplayId, downloadId, canvasId, targetW, targetH, targetMin, targetMax, downloadName }) {
+  setupDrop(dropId, inputId);
+  let loadedImg = null;
+
+  document.getElementById(inputId).addEventListener('change', function () {
+    const file = this.files[0]; if (!file) return;
+    document.getElementById(origSizeId).textContent = fmt(file.size);
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        loadedImg = img;
+        document.getElementById(imgId).src = e.target.result;
+        document.getElementById(previewId).classList.add('visible');
+        render();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function render() {
+    if (!loadedImg) return;
+    const qual = parseInt(document.getElementById(qualId).value) / 100;
+    document.getElementById(qualLabelId).textContent = Math.round(qual * 100) + '%';
+    const canvas = document.getElementById(canvasId);
+    drawToCanvas(canvas, loadedImg, targetW, targetH);
+    const dataUrl = canvas.toDataURL('image/jpeg', qual);
+    const kb = dataUrlBytes(dataUrl) / 1024;
+    const disp = document.getElementById(sizeDisplayId);
+    disp.textContent = kb.toFixed(1) + ' KB';
+    disp.className = 'size-display ' + (kb >= targetMin && kb <= targetMax ? 'ok' : 'any');
+    const dl = document.getElementById(downloadId);
+    dl.href = dataUrl;
+    dl.download = downloadName;
+    dl.classList.remove('hidden');
+  }
+
+  document.getElementById(qualId).addEventListener('input', render);
+}
+
+// ── Photo ─────────────────────────────────────────────────────────────────────
+setupImageCard({
+  inputId: 'photoInput', dropId: 'photoDrop', previewId: 'photoPreview',
+  imgId: 'photoImg', origSizeId: 'photoOrigSize',
+  qualId: 'photoQual', qualLabelId: 'photoQualLabel', sizeDisplayId: 'photoSizeDisplay',
+  downloadId: 'photoDownload', canvasId: 'photoCanvas',
+  targetW: 160, targetH: 200, targetMin: 5, targetMax: 20,
+  downloadName: 'photo_pcc.jpg'
+});
+
+// ── Signature ─────────────────────────────────────────────────────────────────
+setupImageCard({
+  inputId: 'sigInput', dropId: 'sigDrop', previewId: 'sigPreview',
+  imgId: 'sigImg', origSizeId: 'sigOrigSize',
+  qualId: 'sigQual', qualLabelId: 'sigQualLabel', sizeDisplayId: 'sigSizeDisplay',
+  downloadId: 'sigDownload', canvasId: 'sigCanvas',
+  targetW: 256, targetH: 64, targetMin: 5, targetMax: 20,
+  downloadName: 'signature_pcc.jpg'
+});
+
+// ── Document (JPG or PDF) ─────────────────────────────────────────────────────
+setupDrop('docDrop', 'docInput');
+let docLoadedImg = null;
+let docIsPdf = false;
+let docFile = null;
+
+document.getElementById('docInput').addEventListener('change', function () {
+  docFile = this.files[0]; if (!docFile) return;
+  docIsPdf = docFile.type === 'application/pdf' || docFile.name.toLowerCase().endsWith('.pdf');
+  document.getElementById('docOrigSize').textContent = fmt(docFile.size);
+  document.getElementById('docPreview').classList.add('visible');
+  document.getElementById('docImg').style.display = docIsPdf ? 'none' : 'block';
+  document.getElementById('docPdfNote').style.display = docIsPdf ? 'block' : 'none';
+  document.getElementById('docSliderWrap').style.display = docIsPdf ? 'none' : 'block';
+
+  if (docIsPdf) {
+    const kb = docFile.size / 1024;
+    const disp = document.getElementById('docSizeDisplay');
+    disp.textContent = kb.toFixed(1) + ' KB';
+    disp.className = 'size-display ' + (kb >= 75 && kb <= 100 ? 'ok' : 'any');
+    const dl = document.getElementById('docDownload');
+    dl.href = URL.createObjectURL(docFile);
+    dl.download = 'document_pcc.pdf';
+    dl.classList.remove('hidden');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      docLoadedImg = img;
+      document.getElementById('docImg').src = e.target.result;
+      renderDoc();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(docFile);
+});
+
+function renderDoc() {
+  if (!docLoadedImg || docIsPdf) return;
+  const qual = parseInt(document.getElementById('docQual').value) / 100;
+  document.getElementById('docQualLabel').textContent = Math.round(qual * 100) + '%';
+  const canvas = document.getElementById('docCanvas');
+  // Keep original dimensions for doc (don't resize, just compress)
+  const MAX = 1600;
+  let w = docLoadedImg.width, h = docLoadedImg.height;
+  if (w > MAX || h > MAX) {
+    const r = Math.min(MAX / w, MAX / h);
+    w = Math.round(w * r); h = Math.round(h * r);
+  }
+  drawToCanvas(canvas, docLoadedImg, w, h);
+  const dataUrl = canvas.toDataURL('image/jpeg', qual);
+  const kb = dataUrlBytes(dataUrl) / 1024;
+  const disp = document.getElementById('docSizeDisplay');
+  disp.textContent = kb.toFixed(1) + ' KB';
+  disp.className = 'size-display ' + (kb >= 75 && kb <= 100 ? 'ok' : 'any');
+  const dl = document.getElementById('docDownload');
+  dl.href = dataUrl;
+  dl.download = 'document_pcc.jpg';
+  dl.classList.remove('hidden');
+}
+
+document.getElementById('docQual').addEventListener('input', renderDoc);
+</script>
+</body>
+</html>
