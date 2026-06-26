@@ -4,36 +4,40 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PCC Document Resizer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #f0f2f5;
-    color: #1a1a2e;
-    min-height: 100vh;
-    padding: 32px 16px;
+    background: #f0f2f5; color: #1a1a2e;
+    min-height: 100vh; padding: 32px 16px;
   }
   h1 { text-align: center; font-size: 22px; font-weight: 700; margin-bottom: 6px; }
   .subtitle { text-align: center; font-size: 13px; color: #666; margin-bottom: 32px; }
   .cards {
-    display: flex; gap: 20px; max-width: 980px;
+    display: flex; gap: 20px; max-width: 1060px;
     margin: 0 auto; flex-wrap: wrap; justify-content: center;
   }
   .card {
     background: #fff; border-radius: 16px; padding: 24px 20px;
-    width: 300px; box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
     display: flex; flex-direction: column; gap: 14px;
   }
+  .card.photo, .card.document { width: 300px; }
+  .card.signature { width: 340px; }
+
   .card-header { display: flex; align-items: center; gap: 12px; }
   .card-icon {
     width: 42px; height: 42px; border-radius: 11px;
     display: flex; align-items: center; justify-content: center; font-size: 20px;
+    flex-shrink: 0;
   }
   .photo .card-icon { background: #e8f4fd; }
   .signature .card-icon { background: #fef3e2; }
   .document .card-icon { background: #edf7ed; }
   .card-title { font-size: 15px; font-weight: 700; }
   .card-spec { font-size: 11px; color: #999; margin-top: 2px; }
+
   .drop-zone {
     border: 2px dashed #d0d5dd; border-radius: 10px;
     padding: 20px 12px; text-align: center; cursor: pointer;
@@ -53,8 +57,7 @@
     object-fit: contain; background: #f8f8f8;
   }
   .photo .preview-img { width: 96px; height: 120px; }
-  .signature .preview-img { width: 160px; height: 40px; }
-  .document .preview-img { width: 140px; height: 105px; }
+  .document .preview-img { width: 220px; height: 140px; }
 
   .info-row {
     display: flex; justify-content: space-between; align-items: center;
@@ -62,23 +65,20 @@
   }
   .info-row span:last-child { font-weight: 600; color: #1a1a2e; }
 
-  /* Quality slider */
   .slider-wrap { width: 100%; }
   .slider-label {
     display: flex; justify-content: space-between;
     font-size: 12px; color: #555; margin-bottom: 6px;
   }
   .slider-label strong { color: #4f8ef7; font-size: 13px; }
-  input[type=range] {
-    width: 100%; accent-color: #4f8ef7; cursor: pointer; height: 4px;
-  }
+  input[type=range] { width: 100%; accent-color: #4f8ef7; cursor: pointer; height: 4px; }
+
   .size-display {
     text-align: center; font-size: 13px; font-weight: 700;
-    padding: 6px 0; border-radius: 8px; background: #f5f5f5;
+    padding: 6px 0; border-radius: 8px; background: #f5f5f5; width: 100%;
   }
   .size-display.ok { background: #edf7ed; color: #2e7d32; }
   .size-display.any { background: #f5f5f5; color: #333; }
-
   .target-note { font-size: 11px; color: #aaa; text-align: center; }
 
   .btn-download {
@@ -92,16 +92,34 @@
   .btn-download.hidden { display: none; }
 
   canvas { display: none; }
+
+  /* ── Signature crop tool ── */
+  #sigCropWrap {
+    width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  #sigCropCanvas {
+    display: block; border-radius: 8px; border: 1px solid #e5e7eb;
+    cursor: crosshair; width: 100%; touch-action: none;
+  }
+  .crop-hint {
+    font-size: 11px; color: #888; text-align: center; line-height: 1.5;
+  }
+  .crop-hint span { color: #4f8ef7; font-weight: 600; }
+  .sig-out-label { font-size: 11px; color: #aaa; align-self: flex-start; }
+  #sigOutPreview {
+    display: block; width: 256px; height: 64px; max-width: 100%;
+    border: 1px solid #e5e7eb; border-radius: 4px; background: #f8f8f8;
+  }
 </style>
 </head>
 <body>
 
 <h1>PCC Document Resizer</h1>
-<p class="subtitle">Maharashtra Police Clearance Certificate — drag, adjust quality, download</p>
+<p class="subtitle">Maharashtra Police Clearance Certificate — resize, crop, compress, download</p>
 
 <div class="cards">
 
-  <!-- PHOTO -->
+  <!-- ── PHOTO ── -->
   <div class="card photo">
     <div class="card-header">
       <div class="card-icon">🖼️</div>
@@ -128,7 +146,7 @@
     <canvas id="photoCanvas"></canvas>
   </div>
 
-  <!-- SIGNATURE -->
+  <!-- ── SIGNATURE ── -->
   <div class="card signature">
     <div class="card-header">
       <div class="card-icon">✍️</div>
@@ -141,8 +159,12 @@
       <input type="file" accept="image/*" id="sigInput">
       <div class="drop-text">Drop signature or <strong>click to browse</strong></div>
     </div>
-    <div class="preview-wrap" id="sigPreview">
-      <img class="preview-img" id="sigImg" src="" alt="Preview">
+    <!-- Crop UI (shown after upload) -->
+    <div id="sigCropSection" style="display:none; flex-direction:column; gap:10px;">
+      <div id="sigCropWrap">
+        <canvas id="sigCropCanvas"></canvas>
+        <p class="crop-hint">Drag the <span>blue handles</span> to crop exactly around your signature</p>
+      </div>
       <div class="info-row"><span>Original</span><span id="sigOrigSize">—</span></div>
       <div class="slider-wrap">
         <div class="slider-label"><span>Quality</span><strong id="sigQualLabel">80%</strong></div>
@@ -150,18 +172,20 @@
       </div>
       <div class="size-display any" id="sigSizeDisplay">— KB</div>
       <div class="target-note">Target: 5–20 KB</div>
+      <div class="sig-out-label">Output preview (256 × 64 px):</div>
+      <canvas id="sigOutPreview" style="display:block;width:256px;height:64px;max-width:100%;border:1px solid #e5e7eb;border-radius:4px;background:#f8f8f8;"></canvas>
     </div>
     <a class="btn-download hidden" id="sigDownload" download="signature_pcc.jpg">⬇ Download Signature</a>
-    <canvas id="sigCanvas"></canvas>
+    <canvas id="sigFinalCanvas"></canvas>
   </div>
 
-  <!-- DOCUMENT -->
+  <!-- ── DOCUMENT ── -->
   <div class="card document">
     <div class="card-header">
       <div class="card-icon">📄</div>
       <div>
         <div class="card-title">Document</div>
-        <div class="card-spec">Target: 75–100 KB &nbsp;·&nbsp; JPG / PDF</div>
+        <div class="card-spec">Target: 800px wide &nbsp;·&nbsp; 75–100 KB &nbsp;·&nbsp; JPG / PDF</div>
       </div>
     </div>
     <div class="drop-zone" id="docDrop">
@@ -171,7 +195,7 @@
     <div class="preview-wrap" id="docPreview">
       <img class="preview-img" id="docImg" src="" alt="Preview">
       <div id="docPdfNote" style="display:none;font-size:12px;color:#888;text-align:center">
-        📄 PDF — quality slider not available for PDF.<br>Download as-is below.
+        📄 PDF detected — rendering first page as JPEG…
       </div>
       <div class="info-row"><span>Original</span><span id="docOrigSize">—</span></div>
       <div class="slider-wrap" id="docSliderWrap">
@@ -188,18 +212,15 @@
 </div>
 
 <script>
+// ── Utilities ────────────────────────────────────────────────────────────────
 function fmt(bytes) { return (bytes / 1024).toFixed(1) + ' KB'; }
+function dataUrlBytes(d) { return Math.round((d.length - d.indexOf(',') - 1) * 3 / 4); }
 
-function dataUrlBytes(dataUrl) {
-  return Math.round((dataUrl.length - dataUrl.indexOf(',') - 1) * 3 / 4);
-}
-
-function drawToCanvas(canvas, img, w, h) {
+function drawToCanvas(canvas, src, w, h) {
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(img, 0, 0, w, h);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(src, 0, 0, w, h);
 }
 
 function setupDrop(dropId, inputId) {
@@ -209,18 +230,17 @@ function setupDrop(dropId, inputId) {
   drop.addEventListener('drop', e => {
     e.preventDefault(); drop.classList.remove('dragover');
     const f = e.dataTransfer.files[0];
-    if (f) {
-      const inp = document.getElementById(inputId);
-      // Use DataTransfer to set files
-      const dt = new DataTransfer(); dt.items.add(f);
-      inp.files = dt.files;
-      inp.dispatchEvent(new Event('change'));
-    }
+    if (!f) return;
+    const inp = document.getElementById(inputId);
+    const dt = new DataTransfer(); dt.items.add(f);
+    inp.files = dt.files; inp.dispatchEvent(new Event('change'));
   });
 }
 
-// ── Generic image card setup ─────────────────────────────────────────────────
-function setupImageCard({ inputId, dropId, previewId, imgId, origSizeId, qualId, qualLabelId, sizeDisplayId, downloadId, canvasId, targetW, targetH, targetMin, targetMax, downloadName }) {
+// ── Generic photo/doc card ───────────────────────────────────────────────────
+function setupImageCard({ inputId, dropId, previewId, imgId, origSizeId,
+  qualId, qualLabelId, sizeDisplayId, downloadId, canvasId,
+  targetW, targetH, targetMin, targetMax, downloadName, keepAspect }) {
   setupDrop(dropId, inputId);
   let loadedImg = null;
 
@@ -246,103 +266,329 @@ function setupImageCard({ inputId, dropId, previewId, imgId, origSizeId, qualId,
     const qual = parseInt(document.getElementById(qualId).value) / 100;
     document.getElementById(qualLabelId).textContent = Math.round(qual * 100) + '%';
     const canvas = document.getElementById(canvasId);
-    drawToCanvas(canvas, loadedImg, targetW, targetH);
+    let w = targetW, h = targetH;
+    if (keepAspect) {
+      // Fix width, scale height proportionally
+      h = Math.round(loadedImg.height * (targetW / loadedImg.width));
+    }
+    drawToCanvas(canvas, loadedImg, w, h);
     const dataUrl = canvas.toDataURL('image/jpeg', qual);
     const kb = dataUrlBytes(dataUrl) / 1024;
     const disp = document.getElementById(sizeDisplayId);
-    disp.textContent = kb.toFixed(1) + ' KB';
+    disp.textContent = kb.toFixed(1) + ' KB' + (keepAspect ? '  (' + w + '×' + h + 'px)' : '');
     disp.className = 'size-display ' + (kb >= targetMin && kb <= targetMax ? 'ok' : 'any');
     const dl = document.getElementById(downloadId);
-    dl.href = dataUrl;
-    dl.download = downloadName;
-    dl.classList.remove('hidden');
+    dl.href = dataUrl; dl.download = downloadName; dl.classList.remove('hidden');
   }
 
   document.getElementById(qualId).addEventListener('input', render);
 }
 
-// ── Photo ─────────────────────────────────────────────────────────────────────
+// ── Photo ────────────────────────────────────────────────────────────────────
 setupImageCard({
   inputId: 'photoInput', dropId: 'photoDrop', previewId: 'photoPreview',
   imgId: 'photoImg', origSizeId: 'photoOrigSize',
   qualId: 'photoQual', qualLabelId: 'photoQualLabel', sizeDisplayId: 'photoSizeDisplay',
   downloadId: 'photoDownload', canvasId: 'photoCanvas',
   targetW: 160, targetH: 200, targetMin: 5, targetMax: 20,
-  downloadName: 'photo_pcc.jpg'
+  downloadName: 'photo_pcc.jpg', keepAspect: false
 });
 
-// ── Signature ─────────────────────────────────────────────────────────────────
-setupImageCard({
-  inputId: 'sigInput', dropId: 'sigDrop', previewId: 'sigPreview',
-  imgId: 'sigImg', origSizeId: 'sigOrigSize',
-  qualId: 'sigQual', qualLabelId: 'sigQualLabel', sizeDisplayId: 'sigSizeDisplay',
-  downloadId: 'sigDownload', canvasId: 'sigCanvas',
-  targetW: 256, targetH: 64, targetMin: 5, targetMax: 20,
-  downloadName: 'signature_pcc.jpg'
-});
+// ── Signature — manual crop tool ─────────────────────────────────────────────
+{
+  setupDrop('sigDrop', 'sigInput');
 
-// ── Document (JPG or PDF) ─────────────────────────────────────────────────────
+  const cropCanvas  = document.getElementById('sigCropCanvas');
+  const outPreview  = document.getElementById('sigOutPreview');
+  const finalCanvas = document.getElementById('sigFinalCanvas');
+  const cropCtx     = cropCanvas.getContext('2d');
+  const outCtx      = outPreview.getContext('2d');
+
+  const DISP_W   = 300; // display width for crop canvas
+  const HANDLE   = 8;   // handle half-size in display coords
+  let origImg    = null;
+  let dispH      = 0;
+  let scale      = 1;   // origImg / display pixels
+
+  // Crop rect in display coords
+  let crop = { x: 0, y: 0, w: 0, h: 0 };
+
+  // Drag state
+  let drag = null; // { mode: 'move'|corner, startX, startY, startCrop }
+
+  const corners = ['tl','tr','bl','br'];
+  function cornerPos(c) {
+    return {
+      tl: { x: crop.x,            y: crop.y },
+      tr: { x: crop.x + crop.w,   y: crop.y },
+      bl: { x: crop.x,            y: crop.y + crop.h },
+      br: { x: crop.x + crop.w,   y: crop.y + crop.h },
+    }[c];
+  }
+  function hitCorner(mx, my) {
+    for (const c of corners) {
+      const p = cornerPos(c);
+      if (Math.abs(mx - p.x) <= HANDLE + 2 && Math.abs(my - p.y) <= HANDLE + 2) return c;
+    }
+    return null;
+  }
+  function hitInside(mx, my) {
+    return mx > crop.x && mx < crop.x + crop.w && my > crop.y && my < crop.y + crop.h;
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function drawCropOverlay() {
+    cropCtx.clearRect(0, 0, DISP_W, dispH);
+    // Draw image
+    cropCtx.drawImage(origImg, 0, 0, DISP_W, dispH);
+    // Dim outside crop
+    cropCtx.fillStyle = 'rgba(0,0,0,0.45)';
+    cropCtx.fillRect(0, 0, DISP_W, dispH);
+    // Clear crop rect (show image through)
+    cropCtx.clearRect(crop.x, crop.y, crop.w, crop.h);
+    cropCtx.drawImage(origImg, 0, 0, DISP_W, dispH);
+    // Crop border
+    cropCtx.strokeStyle = '#4f8ef7';
+    cropCtx.lineWidth = 1.5;
+    cropCtx.strokeRect(crop.x + 0.5, crop.y + 0.5, crop.w - 1, crop.h - 1);
+    // Rule-of-thirds guides
+    cropCtx.strokeStyle = 'rgba(79,142,247,0.3)';
+    cropCtx.lineWidth = 0.5;
+    for (let i = 1; i < 3; i++) {
+      cropCtx.beginPath();
+      cropCtx.moveTo(crop.x + crop.w * i / 3, crop.y);
+      cropCtx.lineTo(crop.x + crop.w * i / 3, crop.y + crop.h);
+      cropCtx.stroke();
+    }
+    // Corner handles
+    cropCtx.fillStyle = '#4f8ef7';
+    for (const c of corners) {
+      const p = cornerPos(c);
+      cropCtx.fillRect(p.x - HANDLE, p.y - HANDLE, HANDLE * 2, HANDLE * 2);
+    }
+    updateOutput();
+  }
+
+  function updateOutput() {
+    // Draw cropped region → 256×64
+    const sx = crop.x * scale;
+    const sy = crop.y * scale;
+    const sw = crop.w * scale;
+    const sh = crop.h * scale;
+    outPreview.width = 256; outPreview.height = 64;
+    outCtx.fillStyle = '#fff'; outCtx.fillRect(0, 0, 256, 64);
+    if (sw > 0 && sh > 0) {
+      const fit = Math.min(256 / sw, 64 / sh);
+      const dw = Math.round(sw * fit), dh = Math.round(sh * fit);
+      const dx = Math.round((256 - dw) / 2), dy = Math.round((64 - dh) / 2);
+      outCtx.drawImage(origImg, sx, sy, sw, sh, dx, dy, dw, dh);
+    }
+    renderFinal();
+  }
+
+  function renderFinal() {
+    const qual = parseInt(document.getElementById('sigQual').value) / 100;
+    document.getElementById('sigQualLabel').textContent = Math.round(qual * 100) + '%';
+    // Build 256×64 final from crop
+    const sx = crop.x * scale, sy = crop.y * scale;
+    const sw = crop.w * scale, sh = crop.h * scale;
+    finalCanvas.width = 256; finalCanvas.height = 64;
+    const ctx = finalCanvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 256, 64);
+    if (sw > 0 && sh > 0) {
+      const fit = Math.min(256 / sw, 64 / sh);
+      const dw = Math.round(sw * fit), dh = Math.round(sh * fit);
+      const dx = Math.round((256 - dw) / 2), dy = Math.round((64 - dh) / 2);
+      ctx.drawImage(origImg, sx, sy, sw, sh, dx, dy, dw, dh);
+    }
+    const dataUrl = finalCanvas.toDataURL('image/jpeg', qual);
+    const kb = dataUrlBytes(dataUrl) / 1024;
+    const disp = document.getElementById('sigSizeDisplay');
+    disp.textContent = kb.toFixed(1) + ' KB';
+    disp.className = 'size-display ' + (kb >= 5 && kb <= 20 ? 'ok' : 'any');
+    const dl = document.getElementById('sigDownload');
+    dl.href = dataUrl; dl.download = 'signature_pcc.jpg';
+    dl.classList.remove('hidden');
+  }
+
+  // Mouse / touch helpers
+  function getPos(e) {
+    const rect = cropCanvas.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    const scaleX = DISP_W / rect.width;
+    const scaleY = dispH / rect.height;
+    return { x: (src.clientX - rect.left) * scaleX, y: (src.clientY - rect.top) * scaleY };
+  }
+
+  function onDown(e) {
+    e.preventDefault();
+    const { x, y } = getPos(e);
+    const corner = hitCorner(x, y);
+    if (corner) {
+      drag = { mode: corner, startX: x, startY: y, startCrop: { ...crop } };
+    } else if (hitInside(x, y)) {
+      drag = { mode: 'move', startX: x, startY: y, startCrop: { ...crop } };
+    } else {
+      // Start a new crop rect
+      drag = { mode: 'new', startX: x, startY: y };
+      crop = { x, y, w: 0, h: 0 };
+    }
+  }
+
+  function onMove(e) {
+    e.preventDefault();
+    if (!drag) {
+      // Cursor feedback
+      const { x, y } = getPos(e);
+      const c = hitCorner(x, y);
+      cropCanvas.style.cursor = c ? 'nwse-resize' : hitInside(x, y) ? 'move' : 'crosshair';
+      return;
+    }
+    const { x, y } = getPos(e);
+    const dx = x - drag.startX, dy = y - drag.startY;
+    const sc = drag.startCrop;
+    const W = DISP_W, H = dispH;
+
+    if (drag.mode === 'new') {
+      const x0 = clamp(drag.startX, 0, W), y0 = clamp(drag.startY, 0, H);
+      const x1 = clamp(x, 0, W),           y1 = clamp(y, 0, H);
+      crop = { x: Math.min(x0,x1), y: Math.min(y0,y1), w: Math.abs(x1-x0), h: Math.abs(y1-y0) };
+    } else if (drag.mode === 'move') {
+      crop.x = clamp(sc.x + dx, 0, W - sc.w);
+      crop.y = clamp(sc.y + dy, 0, H - sc.h);
+      crop.w = sc.w; crop.h = sc.h;
+    } else {
+      // Corner resize
+      let { x: cx, y: cy, w: cw, h: ch } = sc;
+      if (drag.mode === 'tl') {
+        const nx = clamp(cx + dx, 0, cx + cw - 4);
+        const ny = clamp(cy + dy, 0, cy + ch - 4);
+        crop = { x: nx, y: ny, w: cx + cw - nx, h: cy + ch - ny };
+      } else if (drag.mode === 'tr') {
+        const ny = clamp(cy + dy, 0, cy + ch - 4);
+        const nw = clamp(cw + dx, 4, W - cx);
+        crop = { x: cx, y: ny, w: nw, h: cy + ch - ny };
+      } else if (drag.mode === 'bl') {
+        const nx = clamp(cx + dx, 0, cx + cw - 4);
+        const nh = clamp(ch + dy, 4, H - cy);
+        crop = { x: nx, y: cy, w: cx + cw - nx, h: nh };
+      } else if (drag.mode === 'br') {
+        crop = { x: cx, y: cy, w: clamp(cw + dx, 4, W - cx), h: clamp(ch + dy, 4, H - cy) };
+      }
+    }
+    drawCropOverlay();
+  }
+
+  function onUp(e) { drag = null; }
+
+  cropCanvas.addEventListener('mousedown', onDown);
+  cropCanvas.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+  cropCanvas.addEventListener('touchstart', onDown, { passive: false });
+  cropCanvas.addEventListener('touchmove', onMove, { passive: false });
+  window.addEventListener('touchend', onUp);
+
+  document.getElementById('sigQual').addEventListener('input', renderFinal);
+
+  document.getElementById('sigInput').addEventListener('change', function () {
+    const file = this.files[0]; if (!file) return;
+    document.getElementById('sigOrigSize').textContent = fmt(file.size);
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        origImg = img;
+        scale = img.width / DISP_W;
+        dispH = Math.round(img.height / scale);
+        cropCanvas.width  = DISP_W;
+        cropCanvas.height = dispH;
+        // Default: full image selected
+        crop = { x: 0, y: 0, w: DISP_W, h: dispH };
+        const section = document.getElementById('sigCropSection');
+        section.style.display = 'flex';
+        drawCropOverlay();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── Document ─────────────────────────────────────────────────────────────────
 setupDrop('docDrop', 'docInput');
-let docLoadedImg = null;
-let docIsPdf = false;
-let docFile = null;
+let docLoadedImg = null, docFile = null;
+
+// Set PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 document.getElementById('docInput').addEventListener('change', function () {
   docFile = this.files[0]; if (!docFile) return;
-  docIsPdf = docFile.type === 'application/pdf' || docFile.name.toLowerCase().endsWith('.pdf');
+  const isPdf = docFile.type === 'application/pdf' || docFile.name.toLowerCase().endsWith('.pdf');
   document.getElementById('docOrigSize').textContent = fmt(docFile.size);
   document.getElementById('docPreview').classList.add('visible');
-  document.getElementById('docImg').style.display = docIsPdf ? 'none' : 'block';
-  document.getElementById('docPdfNote').style.display = docIsPdf ? 'block' : 'none';
-  document.getElementById('docSliderWrap').style.display = docIsPdf ? 'none' : 'block';
+  document.getElementById('docImg').style.display     = 'none';
+  document.getElementById('docPdfNote').style.display = isPdf ? 'block' : 'none';
+  document.getElementById('docSliderWrap').style.display = 'block';
+  document.getElementById('docDownload').classList.add('hidden');
 
-  if (docIsPdf) {
-    const kb = docFile.size / 1024;
-    const disp = document.getElementById('docSizeDisplay');
-    disp.textContent = kb.toFixed(1) + ' KB';
-    disp.className = 'size-display ' + (kb >= 75 && kb <= 100 ? 'ok' : 'any');
-    const dl = document.getElementById('docDownload');
-    dl.href = URL.createObjectURL(docFile);
-    dl.download = 'document_pcc.pdf';
-    dl.classList.remove('hidden');
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = e => {
-    const img = new Image();
-    img.onload = () => {
-      docLoadedImg = img;
-      document.getElementById('docImg').src = e.target.result;
-      renderDoc();
+  if (isPdf) {
+    // Render first page of PDF to a canvas, then treat like an image
+    const reader = new FileReader();
+    reader.onload = async e => {
+      const pdfData = new Uint8Array(e.target.result);
+      const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+      const page = await pdf.getPage(1);
+      // Render at 2x scale for quality
+      const viewport = page.getViewport({ scale: 2 });
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width  = viewport.width;
+      tmpCanvas.height = viewport.height;
+      await page.render({ canvasContext: tmpCanvas.getContext('2d'), viewport }).promise;
+      // Convert to Image so renderDoc can use it
+      const img = new Image();
+      img.onload = () => {
+        docLoadedImg = img;
+        document.getElementById('docPdfNote').textContent = '📄 PDF rendered — adjust quality below';
+        // Show thumbnail
+        document.getElementById('docImg').src = tmpCanvas.toDataURL('image/jpeg', 0.7);
+        document.getElementById('docImg').style.display = 'block';
+        renderDoc();
+      };
+      img.src = tmpCanvas.toDataURL('image/png');
     };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(docFile);
+    reader.readAsArrayBuffer(docFile);
+  } else {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        docLoadedImg = img;
+        document.getElementById('docImg').src = e.target.result;
+        document.getElementById('docImg').style.display = 'block';
+        renderDoc();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(docFile);
+  }
 });
 
 function renderDoc() {
-  if (!docLoadedImg || docIsPdf) return;
+  if (!docLoadedImg) return;
   const qual = parseInt(document.getElementById('docQual').value) / 100;
   document.getElementById('docQualLabel').textContent = Math.round(qual * 100) + '%';
   const canvas = document.getElementById('docCanvas');
-  // Keep original dimensions for doc (don't resize, just compress)
-  const MAX = 1600;
-  let w = docLoadedImg.width, h = docLoadedImg.height;
-  if (w > MAX || h > MAX) {
-    const r = Math.min(MAX / w, MAX / h);
-    w = Math.round(w * r); h = Math.round(h * r);
-  }
+  const w = 800, h = Math.round(docLoadedImg.height * (800 / docLoadedImg.width));
   drawToCanvas(canvas, docLoadedImg, w, h);
   const dataUrl = canvas.toDataURL('image/jpeg', qual);
   const kb = dataUrlBytes(dataUrl) / 1024;
   const disp = document.getElementById('docSizeDisplay');
-  disp.textContent = kb.toFixed(1) + ' KB';
+  disp.textContent = kb.toFixed(1) + ' KB  (' + w + '×' + h + 'px)';
   disp.className = 'size-display ' + (kb >= 75 && kb <= 100 ? 'ok' : 'any');
   const dl = document.getElementById('docDownload');
-  dl.href = dataUrl;
-  dl.download = 'document_pcc.jpg';
-  dl.classList.remove('hidden');
+  dl.href = dataUrl; dl.download = 'document_pcc.jpg'; dl.classList.remove('hidden');
 }
 
 document.getElementById('docQual').addEventListener('input', renderDoc);
